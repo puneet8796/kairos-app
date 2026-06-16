@@ -387,6 +387,18 @@ st.markdown("""
     color: #c9a84c; text-transform: uppercase; margin-bottom: 6px;
   }
   .kairos-intro-body { font-size: 0.9rem; color: #aaa; line-height: 1.6; }
+  [data-testid="stAudioInput"] {
+    background-color: #1a1a1a !important;
+    border: 1px solid #c9a84c !important;
+    border-radius: 8px !important;
+  }
+  [data-testid="stAudioInput"] * {
+    color: #f0ede8 !important;
+  }
+  [data-testid="stAudioInput"] svg {
+    fill: #c9a84c !important;
+    color: #c9a84c !important;
+  }
 </style>
 """, unsafe_allow_html=True)
 
