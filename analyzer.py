@@ -18,6 +18,14 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "120"))
 
+__all__ = [
+    "analyze",
+    "analyze_student",
+    "analyze_via_claude",
+    "analyze_student_via_claude",
+    "enforce_second_person",
+]
+
 
 def _extract_json(text: str):
     """Pull the first balanced JSON object out of a model response."""
