@@ -1,11 +1,6 @@
 """
 app.py
-Kairos. A non-intrusive AI self-assessment.
-
-You talk through your day. A local model reads it back through the
-Knowledge Quadrant Framework and shows you where you actually stand.
-
-No login. No account. One session. Your words never leave this machine.
+Kairos — Know where you stand.
 
 Run:  streamlit run app.py --server.port 8502 --server.address 0.0.0.0
 """
@@ -19,6 +14,8 @@ import streamlit as st
 import analyzer
 import emailer
 import framework as fw
+import student_framework as sf
+import storage
 
 st.set_page_config(page_title="Kairos", page_icon="◈", layout="centered")
 
@@ -47,7 +44,7 @@ st.markdown("""
     border-radius: 6px;
   }
 
-  /* Progress bars gold */
+  /* Progress bars gold (default; overridden per-persona in student mode) */
   .stProgress > div > div {
     background-color: #c9a84c;
   }
@@ -67,21 +64,72 @@ st.markdown("""
     text-align: right;
     padding: 4px 0;
   }
+
+  /* Landing page */
+  .kairos-landing-header {
+    text-align: center;
+    color: #c9a84c;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    margin-bottom: 4px;
+  }
+  .kairos-landing-sub {
+    text-align: center;
+    color: #888;
+    font-size: 0.9rem;
+    letter-spacing: 0.1em;
+    margin-bottom: 40px;
+  }
+  .kairos-card {
+    background: #1a1a1a;
+    padding: 32px;
+    border-radius: 8px;
+    border: 1px solid #2a2a2a;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .kairos-card:hover { border-color: #c9a84c; }
+  .kairos-card-icon {
+    font-size: 2rem;
+    color: #c9a84c;
+    display: block;
+    margin-bottom: 12px;
+  }
+  .kairos-card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #f0ede8;
+    margin-bottom: 10px;
+  }
+  .kairos-card-body {
+    font-size: 0.9rem;
+    color: #aaa;
+    margin-bottom: 8px;
+  }
+  .kairos-card-sub {
+    font-size: 0.78rem;
+    color: #666;
+    margin-bottom: 20px;
+  }
+  .kairos-landing-footer {
+    text-align: center;
+    color: #555;
+    font-size: 0.78rem;
+    margin-top: 48px;
+  }
 </style>
 """, unsafe_allow_html=True)
 
+# ─── SESSION TOKEN ───
 if "session_token" not in st.session_state:
     chars = string.ascii_uppercase + string.digits
     st.session_state["session_token"] = "KQ-" + "".join(
         random.choices(chars, k=4)
     )
 token = st.session_state["session_token"]
-st.markdown(
-    f"<div class='kairos-token'>Session ID: {token} "
-    f"— save this</div>",
-    unsafe_allow_html=True
-)
 
+# ─── CONSTANTS ───
 RISK_COLORS = {
     "Critical": "#c0392b",
     "High": "#e67e22",
@@ -138,8 +186,6 @@ PROBE_QUESTIONS = {
     ],
 }
 
-# Maps each quadrant to the personas whose questions probe that quadrant's themes.
-# Tie-break priority: creator > general > builder > doctor.
 _QUAD_PROBE_PRIORITY = ["creator", "general", "builder", "doctor"]
 _QUAD_PERSONAS = {
     "doctor":  ["The Doer", "The Responder"],
@@ -152,7 +198,6 @@ _QUAD_PERSONAS = {
 def _pick_probe_questions(blend, dominant_persona):
     """Return 2 probe question strings driven by the lowest-weighted quadrants."""
     priority = _QUAD_PROBE_PRIORITY
-
     zero_quads = [q for q in priority if blend.get(q, 0) == 0]
     non_zero = sorted(
         [(q, blend[q]) for q in priority if blend.get(q, 0) > 0],
@@ -173,7 +218,10 @@ def _pick_probe_questions(blend, dominant_persona):
         if dominant_persona in candidates:
             persona_key = dominant_persona
         else:
-            persona_key = next((p for p in candidates if p not in used_personas), candidates[0] if candidates else None)
+            persona_key = next(
+                (p for p in candidates if p not in used_personas),
+                candidates[0] if candidates else None,
+            )
         if not persona_key:
             continue
         used_personas.append(persona_key)
@@ -234,82 +282,6 @@ def risk_pill(risk: str):
     )
 
 
-# --------------------------------------------------------------------------- UI
-st.title("Kairos")
-st.caption(
-    "The moment of reckoning. Speak freely. "
-    "Know where you stand."
-)
-st.caption(
-    "No login. One session. Your words never leave "
-    "this machine. This is a mirror, not a quiz."
-)
-
-# Inspiration chips
-CHIPS = [
-    "What took the most energy today?",
-    "What decision did only you make?",
-    "What felt mechanical — something a tool could have done?",
-    "When did you feel most irreplaceable today?",
-    "What would have broken if you weren't there?",
-]
-
-if "chip_seed" not in st.session_state:
-    st.session_state["chip_seed"] = random.randint(0, 99)
-
-random.seed(st.session_state["chip_seed"])
-shuffled = random.sample(CHIPS, len(CHIPS))
-
-st.caption("Not sure where to start? Pick a prompt:")
-chip_cols = st.columns(len(shuffled))
-
-if "chip_text" not in st.session_state:
-    st.session_state["chip_text"] = ""
-
-for i, chip in enumerate(shuffled):
-    with chip_cols[i]:
-        if st.button(chip, key=f"chip_{i}",
-                     use_container_width=True):
-            st.session_state["chip_text"] = chip
-
-transcript = st.text_area(
-    label="Your day",
-    height=260,
-    value=st.session_state.get("chip_text", ""),
-    placeholder="Start anywhere. What is on your mind? "
-                "It could be your whole day, one moment "
-                "that stood out, a decision you made, "
-                "something that energized you or drained "
-                "you. There is no wrong way to begin.",
-    label_visibility="collapsed",
-    key="transcript_input",
-)
-
-# Live word count feedback
-word_count = len(transcript.strip().split()) \
-             if transcript.strip() else 0
-if word_count == 0:
-    pass
-elif word_count < 50:
-    st.caption(
-        f"{word_count} words — keep going, "
-        f"the more you share the sharper the insight."
-    )
-elif word_count < 150:
-    st.caption(f"{word_count} words — good, you're in the zone.")
-else:
-    st.caption(
-        f"{word_count} words — that's plenty. "
-        f"Submit when ready."
-    )
-
-col_a, col_b = st.columns([1, 3])
-with col_a:
-    go = st.button("Read my day", type="primary", use_container_width=True)
-with col_b:
-    st.caption(f"Local model: `{analyzer.OLLAMA_MODEL}` via Ollama")
-
-
 def _stage1_validate(text: str):
     words = text.strip().split()
     if len(words) < 40:
@@ -318,17 +290,14 @@ def _stage1_validate(text: str):
             f"words so far. Forty words is enough. No need to "
             f"organize it, just keep talking."
         )
-    unique_ratio = len(set(w.lower() for w in words)) \
-                   / len(words)
+    unique_ratio = len(set(w.lower() for w in words)) / len(words)
     if unique_ratio < 0.30:
         return False, (
             "Looks like something got repeated. Just write "
             "naturally — whatever comes to mind about your day "
             "is exactly right."
         )
-    ascii_ratio = sum(
-        1 for c in text if ord(c) < 128
-    ) / len(text)
+    ascii_ratio = sum(1 for c in text if ord(c) < 128) / len(text)
     if ascii_ratio < 0.90:
         return False, (
             "Kairos works best with an English narrative. "
@@ -338,112 +307,439 @@ def _stage1_validate(text: str):
     return True, ""
 
 
-if go:
-    ok, msg = _stage1_validate(transcript)
-    if not ok:
-        st.warning(msg)
-        st.stop()
-    with st.spinner(
-        "Reading your day through the four quadrants..."
-    ):
-        result = analyzer.analyze(transcript)
-    st.session_state["result"] = result
-    st.session_state["transcript"] = transcript
+# ═══════════════════════════════════════
+# LANDING PAGE
+# ═══════════════════════════════════════
+if "mode" not in st.session_state:
 
-# ----------------------------------------------------------------------- Results
-if "result" in st.session_state:
-    result = st.session_state["result"]
-    transcript = st.session_state["transcript"]
-
-    if result.get("_fallback"):
-        st.error(result["insight"])
-
-    st.divider()
-
-    # Persona
-    p = fw.persona_by_name(result["dominant_persona"])
-    st.subheader(f"You read mostly as {result['dominant_persona']}")
-    if p:
-        risk_pill(p["risk"])
-        st.write("")
-        st.write(p["desc"])
-    why_text = fw.PERSONA_WHY.get(result["dominant_persona"], "")
-    if why_text:
-        st.markdown(f"*{why_text}*")
-
-    # Quadrant blend
-    st.markdown("#### Your quadrant blend today")
-    for k in QUAD_ORDER:
-        pct = result["quadrant_blend"][k]
-        q = fw.QUADRANTS[k]
-        st.markdown(f"**{q['label']}** &middot; {pct}%  \n<span style='color:#888;font-size:0.8rem'>{q['axes']}</span>",
-                    unsafe_allow_html=True)
-        st.progress(min(pct, 100) / 100)
-
-    # Flip-card reflection probes
-    st.markdown("#### A few things to sit with")
-    probe_qs = _pick_probe_questions(result["quadrant_blend"], result["dominant_persona"])
-    for q in probe_qs:
-        with st.expander("Reflect →", expanded=False):
-            st.markdown(f"<p style='font-size:1.1rem'>{q}</p>", unsafe_allow_html=True)
-            st.caption("You don't need to answer here. Just let it sit.")
-
-    # Displacement signals
-    if result.get("displacement_signals"):
-        st.markdown("#### Where an agent could step in")
-        for s in result["displacement_signals"]:
-            st.markdown(f"- “{s.get('phrase','')}” — *{s.get('why','')}*")
-
-    # Energy
-    if result.get("energizing") or result.get("draining"):
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### Energized you")
-            for e in result.get("energizing", []) or ["—"]:
-                st.markdown(f"- {analyzer.enforce_second_person(e)}")
-        with c2:
-            st.markdown("#### Drained you")
-            for d in result.get("draining", []) or ["—"]:
-                st.markdown(f"- {analyzer.enforce_second_person(d)}")
-
-    # Insight + question
-    if result.get("insight"):
-        st.markdown("#### What your words reveal")
-        st.info(analyzer.enforce_second_person(result["insight"]))
-    if result.get("honest_question"):
-        st.markdown("#### One question to sit with")
-        st.success(analyzer.enforce_second_person(result["honest_question"]))
-
-    # Delivery
-    st.divider()
-    summary = build_summary_text(result, transcript, token)
-    st.download_button(
-        "Download this summary",
-        data=summary,
-        file_name=f"kairos_{token}.txt",
-        mime="text/plain",
+    st.markdown(
+        "<div class='kairos-landing-header'>KAIROS</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='kairos-landing-sub'>KNOW WHERE YOU STAND</div>",
+        unsafe_allow_html=True,
     )
 
-    if emailer.email_configured():
-        with st.expander("Email this summary to myself"):
-            to = st.text_input("Your email address")
-            st.caption(
-                "Sent from kairos.puneet@gmail.com — "
-                "configure SMTP_* env vars to activate."
-            )
-            if st.button("Send"):
-                ok, msg = emailer.send_summary(
-                    to,
-                    f"Kairos — your honest picture, {dt.date.today()}",
-                    summary,
-                )
-                (st.success if ok else st.error)(msg)
-    else:
-        st.caption("Email delivery is off. Set the SMTP_* env vars to turn it on.")
+    col1, col2 = st.columns(2)
 
-    with st.expander("What this tool looked at"):
-        st.write(
-            "It mapped your time across the four quadrants, flagged language that signals "
-            "documentable work, and noted what energized versus drained you. It runs entirely "
-            "on this machine. Nothing was sent anywhere."
+    with col1:
+        st.markdown("""
+        <div class='kairos-card'>
+          <span class='kairos-card-icon'>◈</span>
+          <div class='kairos-card-title'>For Professionals</div>
+          <div class='kairos-card-body'>Where does your work stand in the age of AI?</div>
+          <div class='kairos-card-sub'>10 minutes · Local analysis · No account</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Enter →", key="btn_pro", type="primary", use_container_width=True):
+            st.session_state["mode"] = "professional"
+            st.rerun()
+
+    with col2:
+        st.markdown("""
+        <div class='kairos-card'>
+          <span class='kairos-card-icon'>◎</span>
+          <div class='kairos-card-title'>Kairos Student</div>
+          <div class='kairos-card-body'>Are you spending your energy on the things that matter to you?</div>
+          <div class='kairos-card-sub'>10 minutes · Honest feedback · Just for you</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Enter →", key="btn_student", type="primary", use_container_width=True):
+            st.session_state["mode"] = "student"
+            st.rerun()
+
+    st.markdown(
+        "<div class='kairos-landing-footer'>No login. No account. Your words stay yours.</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ═══════════════════════════════════════
+# PROFESSIONAL MODE
+# ═══════════════════════════════════════
+elif st.session_state["mode"] == "professional":
+
+    if st.button("← Change mode", key="change_mode_pro"):
+        st.session_state.clear()
+        st.rerun()
+
+    st.markdown(
+        f"<div class='kairos-token'>Session ID: {token} — save this</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.title("Kairos")
+    st.caption(
+        "The moment of reckoning. Speak freely. "
+        "Know where you stand."
+    )
+    st.caption(
+        "No login. One session. Your words never leave "
+        "this machine. This is a mirror, not a quiz."
+    )
+
+    CHIPS = [
+        "What took the most energy today?",
+        "What decision did only you make?",
+        "What felt mechanical — something a tool could have done?",
+        "When did you feel most irreplaceable today?",
+        "What would have broken if you weren't there?",
+    ]
+
+    if "chip_seed" not in st.session_state:
+        st.session_state["chip_seed"] = random.randint(0, 99)
+
+    random.seed(st.session_state["chip_seed"])
+    shuffled = random.sample(CHIPS, len(CHIPS))
+
+    st.caption("Not sure where to start? Pick a prompt:")
+    chip_cols = st.columns(len(shuffled))
+
+    if "chip_text" not in st.session_state:
+        st.session_state["chip_text"] = ""
+
+    for i, chip in enumerate(shuffled):
+        with chip_cols[i]:
+            if st.button(chip, key=f"chip_{i}", use_container_width=True):
+                st.session_state["chip_text"] = chip
+
+    transcript = st.text_area(
+        label="Your day",
+        height=260,
+        value=st.session_state.get("chip_text", ""),
+        placeholder=(
+            "Start anywhere. What is on your mind? "
+            "It could be your whole day, one moment "
+            "that stood out, a decision you made, "
+            "something that energized you or drained "
+            "you. There is no wrong way to begin."
+        ),
+        label_visibility="collapsed",
+        key="transcript_input",
+    )
+
+    word_count = len(transcript.strip().split()) if transcript.strip() else 0
+    if word_count == 0:
+        pass
+    elif word_count < 50:
+        st.caption(
+            f"{word_count} words — keep going, "
+            f"the more you share the sharper the insight."
         )
+    elif word_count < 150:
+        st.caption(f"{word_count} words — good, you're in the zone.")
+    else:
+        st.caption(f"{word_count} words — that's plenty. Submit when ready.")
+
+    col_a, col_b = st.columns([1, 3])
+    with col_a:
+        go = st.button("Read my day", type="primary", use_container_width=True)
+    with col_b:
+        st.caption(f"Local model: `{analyzer.OLLAMA_MODEL}` via Ollama")
+
+    if go:
+        ok, msg = _stage1_validate(transcript)
+        if not ok:
+            st.warning(msg)
+            st.stop()
+        with st.spinner("Reading your day through the four quadrants..."):
+            result = analyzer.analyze(transcript)
+        st.session_state["result"] = result
+        st.session_state["transcript"] = transcript
+        storage.save_session(
+            token=token,
+            mode="professional",
+            persona=result["dominant_persona"],
+            blend=result["quadrant_blend"],
+            transcript=transcript,
+            insight=result.get("insight", ""),
+        )
+
+    if "result" in st.session_state:
+        result = st.session_state["result"]
+        transcript = st.session_state["transcript"]
+
+        if result.get("_fallback"):
+            st.error(result["insight"])
+
+        st.divider()
+
+        p = fw.persona_by_name(result["dominant_persona"])
+        st.subheader(f"You read mostly as {result['dominant_persona']}")
+        if p:
+            risk_pill(p["risk"])
+            st.write("")
+            st.write(p["desc"])
+        why_text = fw.PERSONA_WHY.get(result["dominant_persona"], "")
+        if why_text:
+            st.markdown(f"*{why_text}*")
+
+        st.markdown("#### Your quadrant blend today")
+        for k in QUAD_ORDER:
+            pct = result["quadrant_blend"][k]
+            q = fw.QUADRANTS[k]
+            st.markdown(
+                f"**{q['label']}** &middot; {pct}%  \n"
+                f"<span style='color:#888;font-size:0.8rem'>{q['axes']}</span>",
+                unsafe_allow_html=True,
+            )
+            st.progress(min(pct, 100) / 100)
+
+        st.markdown("#### A few things to sit with")
+        probe_qs = _pick_probe_questions(
+            result["quadrant_blend"], result["dominant_persona"]
+        )
+        for q in probe_qs:
+            with st.expander("Reflect →", expanded=False):
+                st.markdown(
+                    f"<p style='font-size:1.1rem'>{q}</p>",
+                    unsafe_allow_html=True,
+                )
+                st.caption("You don't need to answer here. Just let it sit.")
+
+        if result.get("displacement_signals"):
+            st.markdown("#### Where an agent could step in")
+            for s in result["displacement_signals"]:
+                st.markdown(f"- “{s.get('phrase','')}” — *{s.get('why','')}*")
+
+        if result.get("energizing") or result.get("draining"):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### Energized you")
+                for e in result.get("energizing", []) or ["—"]:
+                    st.markdown(f"- {analyzer.enforce_second_person(e)}")
+            with c2:
+                st.markdown("#### Drained you")
+                for d in result.get("draining", []) or ["—"]:
+                    st.markdown(f"- {analyzer.enforce_second_person(d)}")
+
+        if result.get("insight"):
+            st.markdown("#### What your words reveal")
+            st.info(analyzer.enforce_second_person(result["insight"]))
+        if result.get("honest_question"):
+            st.markdown("#### One question to sit with")
+            st.success(analyzer.enforce_second_person(result["honest_question"]))
+
+        st.divider()
+        summary = build_summary_text(result, transcript, token)
+        st.download_button(
+            "Download this summary",
+            data=summary,
+            file_name=f"kairos_{token}.txt",
+            mime="text/plain",
+        )
+
+        if emailer.email_configured():
+            with st.expander("Email this summary to myself"):
+                to = st.text_input("Your email address")
+                st.caption(
+                    "Sent from kairos.puneet@gmail.com — "
+                    "configure SMTP_* env vars to activate."
+                )
+                if st.button("Send"):
+                    ok, msg = emailer.send_summary(
+                        to,
+                        f"Kairos — your honest picture, {dt.date.today()}",
+                        summary,
+                    )
+                    (st.success if ok else st.error)(msg)
+        else:
+            st.caption("Email delivery is off. Set the SMTP_* env vars to turn it on.")
+
+        with st.expander("What this tool looked at"):
+            st.write(
+                "It mapped your time across the four quadrants, flagged language that signals "
+                "documentable work, and noted what energized versus drained you. It runs entirely "
+                "on this machine. Nothing was sent anywhere."
+            )
+
+        st.markdown(
+            f"<p style='color:#555;font-size:0.72rem;'>Session {token} stored anonymously "
+            f"to help improve Kairos.</p>",
+            unsafe_allow_html=True,
+        )
+
+
+# ═══════════════════════════════════════
+# STUDENT MODE
+# ═══════════════════════════════════════
+elif st.session_state["mode"] == "student":
+
+    if st.button("← Change mode", key="change_mode_student"):
+        st.session_state.clear()
+        st.rerun()
+
+    st.markdown(
+        f"<div class='kairos-token'>Session ID: {token} — save this</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "<h2 style='color:#c9a84c;font-size:1.5rem;margin-bottom:4px;'>Kairos Student</h2>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Ten minutes. Talk about your day. Get honest feedback on what you're building "
+        "— and what you might be missing."
+    )
+
+    # ─── INPUT SECTION ───
+    if "student_result" not in st.session_state:
+
+        st.caption("Not sure where to start? Pick a prompt:")
+
+        if "student_chip_seed" not in st.session_state:
+            st.session_state["student_chip_seed"] = random.randint(0, 99)
+
+        random.seed(st.session_state["student_chip_seed"])
+        chips_shuffled = random.sample(sf.STUDENT_CHIPS, len(sf.STUDENT_CHIPS))
+
+        chip_cols = st.columns(len(chips_shuffled))
+
+        if "student_chip_text" not in st.session_state:
+            st.session_state["student_chip_text"] = ""
+
+        for i, chip in enumerate(chips_shuffled):
+            with chip_cols[i]:
+                if st.button(chip, key=f"s_chip_{i}", use_container_width=True):
+                    st.session_state["student_chip_text"] = chip
+
+        student_transcript = st.text_area(
+            label="Your day",
+            height=260,
+            value=st.session_state.get("student_chip_text", ""),
+            placeholder=(
+                "Start anywhere. What happened today? What did you think about? "
+                "Who did you talk to? There's no wrong way to begin."
+            ),
+            label_visibility="collapsed",
+            key="student_transcript_input",
+        )
+
+        s_words = len(student_transcript.strip().split()) if student_transcript.strip() else 0
+        if s_words == 0:
+            pass
+        elif s_words < 30:
+            st.caption(
+                f"{s_words} words — keep going, "
+                f"a little more and we can really see something."
+            )
+        elif s_words < 100:
+            st.caption(f"{s_words} words — good, you're in the zone.")
+        else:
+            st.caption(f"{s_words} words — that's plenty.")
+
+        go_student = st.button("Read my day →", type="primary")
+        if go_student:
+            if len(student_transcript.strip().split()) < 30:
+                st.warning(
+                    "Just a little more — even 30 words gives us something real to work with."
+                )
+                st.stop()
+            with st.spinner("Reading your day..."):
+                s_result = analyzer.analyze_student(student_transcript)
+            st.session_state["student_result"] = s_result
+            st.session_state["student_transcript"] = student_transcript
+            storage.save_session(
+                token=token,
+                mode="student",
+                persona=s_result["dominant_persona"],
+                blend=s_result["mode_blend"],
+                transcript=student_transcript,
+                insight=s_result.get("insight", ""),
+            )
+            st.rerun()
+
+    # ─── RESULTS SECTION ───
+    else:
+        result = st.session_state["student_result"]
+        transcript = st.session_state["student_transcript"]
+
+        p = sf.student_persona_by_name(result["dominant_persona"])
+        persona_color = p["color"] if p else "#c9a84c"
+
+        st.markdown(f"""
+        <style>
+        .persona-color {{ color: {persona_color}; }}
+        .persona-border {{
+            border-left: 4px solid {persona_color};
+            padding-left: 16px;
+        }}
+        .stProgress > div > div {{
+            background-color: {persona_color} !important;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
+
+        # BLOCK 1 — WHAT IS WORKING
+        st.markdown("#### What today said about you")
+        for item in result.get("what_is_working", []):
+            st.success(item)
+
+        # BLOCK 2 — PERSONA
+        st.divider()
+        st.markdown(
+            f"<h3 style='color:{persona_color};'>"
+            f"You showed up today as {result['dominant_persona']}</h3>",
+            unsafe_allow_html=True,
+        )
+        if p:
+            st.write(p["desc"])
+
+        # BLOCK 3 — MODE BLEND
+        st.markdown("#### Your energy map today")
+        mode_labels = {
+            "wave_rider": "Wave Rider",
+            "main_attraction": "Main Attraction",
+            "the_learned": "The Learned",
+            "the_builder": "The Builder",
+        }
+        for key, label in mode_labels.items():
+            pct = result["mode_blend"].get(key, 0)
+            st.markdown(f"**{label}** &middot; {pct}%")
+            st.progress(min(pct, 100) / 100)
+
+        # BLOCK 4 — GROWTH
+        st.divider()
+        st.markdown("#### Something worth exploring")
+        for item in result.get("growth_observations", []):
+            st.info(item)
+
+        # BLOCK 5 — EXPANSION SUGGESTION
+        st.divider()
+        if p:
+            st.markdown(
+                f"<div class='persona-border'>"
+                f"<h4>One thing to try tomorrow</h4>"
+                f"<p>{p['expansion']}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        # BLOCK 6 — INSIGHT + QUESTION
+        st.divider()
+        if result.get("insight"):
+            st.markdown("#### What your day reveals")
+            st.info(result["insight"])
+        if result.get("honest_question"):
+            st.markdown("#### A question to sit with")
+            st.success(result["honest_question"])
+
+        # BLOCK 7 — CELEBRATION
+        st.divider()
+        if p:
+            st.markdown(f"*{p['celebration']}*")
+
+        # BLOCK 8 — STORAGE NOTE + RESET
+        st.markdown(
+            f"<p style='color:#555;font-size:0.72rem;margin-top:24px;'>"
+            f"Session {token} stored anonymously to help improve Kairos Student. "
+            f"No names. No contact info. Just this.</p>",
+            unsafe_allow_html=True,
+        )
+
+        if st.button("Reflect on another day →"):
+            del st.session_state["student_result"]
+            del st.session_state["student_transcript"]
+            st.rerun()

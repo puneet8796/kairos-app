@@ -180,6 +180,112 @@ def analyze_via_claude(transcript: str):
     return _validate(parsed, transcript)
 
 
+def analyze_student_via_claude(transcript: str):
+    """Student analysis via Claude API."""
+    import student_framework as sf
+    client = anthropic.Anthropic(
+        api_key=os.environ["ANTHROPIC_API_KEY"]
+    )
+    prompt = sf.build_student_prompt(transcript)
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1000,
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+    content = message.content[0].text
+    parsed = _extract_json(content)
+    if parsed is None:
+        raise ValueError(
+            "Claude did not return valid JSON"
+        )
+    return _validate_student(parsed, transcript)
+
+
+def _validate_student(result, transcript):
+    """Validate and clean student result."""
+    result = result or {}
+
+    keys = [
+        "wave_rider", "main_attraction",
+        "the_learned", "the_builder",
+    ]
+    blend = {}
+    for k in keys:
+        try:
+            blend[k] = max(
+                0.0,
+                float(result.get("mode_blend", {}).get(k, 0))
+            )
+        except Exception:
+            blend[k] = 0.0
+    total = sum(blend.values())
+    if total <= 0:
+        blend = {k: 25 for k in keys}
+    else:
+        blend = {k: round(v / total * 100) for k, v in blend.items()}
+
+    persona = result.get("dominant_persona", "")
+    import student_framework as sf
+    if not sf.student_persona_by_name(persona):
+        dominant = max(blend, key=blend.get)
+        mapping = {
+            "wave_rider": "The Wave Rider",
+            "main_attraction": "The Main Attraction",
+            "the_learned": "The Learned",
+            "the_builder": "The Builder",
+        }
+        persona = mapping.get(dominant, "The Wave Rider")
+
+    def _as_list(v):
+        if isinstance(v, list):
+            return [str(x) for x in v if str(x).strip()]
+        if isinstance(v, str) and v.strip():
+            return [v.strip()]
+        return []
+
+    return {
+        "mode_blend": blend,
+        "dominant_persona": persona,
+        "what_is_working": _as_list(result.get("what_is_working")),
+        "growth_observations": _as_list(result.get("growth_observations")),
+        "insight": str(result.get("insight", "")).strip(),
+        "honest_question": str(result.get("honest_question", "")).strip(),
+        "_mode": "student",
+    }
+
+
+def analyze_student(transcript: str):
+    """Entry point for student analysis."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            return analyze_student_via_claude(transcript)
+        except Exception:
+            pass
+    return {
+        "mode_blend": {
+            "wave_rider": 25,
+            "main_attraction": 25,
+            "the_learned": 25,
+            "the_builder": 25,
+        },
+        "dominant_persona": "The Learned",
+        "what_is_working": [
+            "You showed up and reflected.",
+            "That alone puts you ahead.",
+        ],
+        "growth_observations": [
+            "The model was unavailable.",
+            "Try again in a moment.",
+        ],
+        "insight": "Analysis unavailable.",
+        "honest_question": "",
+        "_mode": "student",
+        "_fallback": True,
+    }
+
+
 def analyze(transcript: str):
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
