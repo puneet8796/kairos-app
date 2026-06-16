@@ -3,7 +3,3 @@ backgroundColor = "#0d0d0d"
 textColor = "#f0ede8"
 primaryColor = "#c9a84c"
 font = "sans serif"
-
-[server]
-headless = true
-port = 8502
