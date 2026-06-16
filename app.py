@@ -35,36 +35,54 @@ def load_image_base64(path: str) -> str:
         return base64.b64encode(f.read()).decode()
 
 
-def _transcribe(audio_bytes: bytes) -> str:
-    """Transcribe audio via Groq (cloud) or faster-whisper (local)."""
+def _voice_backend():
+    """Return 'groq', 'local', or None.
+
+    'groq'  — GROQ_API_KEY is set; transcribe via Groq Whisper on the cloud.
+    'local' — faster-whisper is importable; transcribe on this machine.
+    None    — no voice backend available; suppress the entire recorder UI.
+    """
     if os.environ.get("GROQ_API_KEY"):
+        return "groq"
+    try:
+        import faster_whisper  # noqa: F401
+        return "local"
+    except Exception:
+        return None
+
+
+def _transcribe(audio_bytes: bytes) -> str:
+    """Transcribe audio. Audio bytes are held in a local variable only —
+    never written to disk, never stored in session_state, never passed to
+    storage. After this function returns the bytes go out of scope.
+
+    Raises RuntimeError on failure so the caller can surface the message
+    via st.error() and leave the text box usable.
+    """
+    backend = _voice_backend()
+    if backend == "groq":
+        from groq import Groq
+        client = Groq(api_key=os.environ["GROQ_API_KEY"])
         try:
-            from groq import Groq
-            client = Groq(api_key=os.environ["GROQ_API_KEY"])
             response = client.audio.transcriptions.create(
                 model="whisper-large-v3-turbo",
                 file=("audio.webm", io.BytesIO(audio_bytes), "audio/webm"),
             )
-            return response.text
-        except Exception as e:
-            return f"[Transcription failed: {e}]"
-    else:
+        except Exception as exc:
+            raise RuntimeError(f"Groq transcription failed: {exc}") from exc
+        return response.text
+
+    if backend == "local":
+        from faster_whisper import WhisperModel
+        model = WhisperModel("base", device="cpu", compute_type="int8")
         try:
-            from faster_whisper import WhisperModel
-            import tempfile
-            model = WhisperModel("base", device="cpu", compute_type="int8")
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
-                f.write(audio_bytes)
-                tmp_path = f.name
-            try:
-                segments, _ = model.transcribe(tmp_path)
-                return " ".join(s.text.strip() for s in segments)
-            finally:
-                os.unlink(tmp_path)
-        except ImportError:
-            return "[Local transcription unavailable. Install faster-whisper.]"
-        except Exception as e:
-            return f"[Transcription failed: {e}]"
+            # Pass a BytesIO so audio never touches disk.
+            segments, _ = model.transcribe(io.BytesIO(audio_bytes))
+            return " ".join(s.text.strip() for s in segments)
+        except Exception as exc:
+            raise RuntimeError(f"Local transcription failed: {exc}") from exc
+
+    raise RuntimeError("No transcription backend is available.")
 
 
 def generate_pdf_from_row(row: dict) -> bytes:
@@ -758,27 +776,37 @@ else:
 
     st.write("")
 
-    # ── Voice input (Task 9) ──
-    _use_groq = bool(os.environ.get("GROQ_API_KEY"))
-    privacy_note = (
-        "Audio is transcribed via Groq Whisper in the cloud, then discarded. The text stays with you."
-        if _use_groq else
-        "Audio is transcribed locally on this machine. It never leaves."
-    )
-    st.caption(f"Voice usually goes deeper. {privacy_note}")
-    try:
-        audio_value = st.audio_input("Record your day")
-        if audio_value is not None:
-            audio_bytes = audio_value.getvalue()
-            audio_hash = hashlib.md5(audio_bytes).hexdigest()
-            if audio_hash != st.session_state.get("audio_hash"):
-                with st.spinner("Transcribing..."):
-                    transcribed = _transcribe(audio_bytes)
-                st.session_state["audio_hash"] = audio_hash
-                st.session_state["draft_text"] = transcribed
-                st.rerun()
-    except AttributeError:
-        st.caption("(Voice input requires Streamlit 1.31+)")
+    # ── Voice input — only when a backend is available ──
+    _vb = _voice_backend()
+    if _vb is not None:
+        if _vb == "groq":
+            _voice_copy = (
+                "Your recording is sent to Groq only to transcribe it, then dropped. "
+                "Kairos never stores the audio. "
+                "The transcript is saved under your code, with no name, email, or IP attached."
+            )
+        else:
+            _voice_copy = "Audio is transcribed on this machine and never leaves it."
+        st.caption(f"Voice usually goes deeper. {_voice_copy}")
+        try:
+            audio_value = st.audio_input("Record your day")
+            if audio_value is not None:
+                audio_bytes = audio_value.getvalue()
+                audio_hash = hashlib.sha256(audio_bytes).hexdigest()
+                if audio_hash != st.session_state.get("audio_hash"):
+                    with st.spinner("Transcribing..."):
+                        try:
+                            transcribed = _transcribe(audio_bytes)
+                            st.session_state["audio_hash"] = audio_hash
+                            st.session_state["draft_text"] = transcribed
+                            st.rerun()
+                        except RuntimeError as _err:
+                            st.error(f"Could not transcribe: {_err}. Type your day below instead.")
+                        finally:
+                            # Let audio_bytes go out of scope immediately.
+                            del audio_bytes
+        except AttributeError:
+            pass  # st.audio_input not available in this Streamlit build
 
     # ── Chip prompts ──
     CHIPS = [
@@ -851,8 +879,16 @@ else:
         st.session_state.pop("draft_text", None)
         st.rerun()
 
+    _is_cloud = bool(os.environ.get("DATABASE_URL"))
+    _storage_note = (
+        "Your transcript is sent to Claude to analyze and stored anonymously under your code. "
+        "No name, email, or IP is collected."
+        if _is_cloud else
+        "Your transcript is analyzed locally and stored on this machine under your code. "
+        "Nothing leaves."
+    )
     st.markdown(
-        "<p style='text-align:center;color:#444;font-size:0.75rem;margin-top:32px;'>"
-        "No login. No account. Your words stay yours.</p>",
+        f"<p style='text-align:center;color:#444;font-size:0.75rem;margin-top:32px;'>"
+        f"No login. No account. {_storage_note}</p>",
         unsafe_allow_html=True,
     )
