@@ -5,6 +5,7 @@ Kairos — Know where you stand.
 Run:  streamlit run app.py --server.port 8502 --server.address 0.0.0.0
 """
 
+import base64
 import datetime as dt
 import random
 import string
@@ -16,6 +17,11 @@ import emailer
 import framework as fw
 import student_framework as sf
 import storage
+
+def load_image_base64(path: str) -> str:
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
 
 st.set_page_config(page_title="Kairos", page_icon="◈", layout="centered")
 
@@ -312,45 +318,122 @@ def _stage1_validate(text: str):
 # ═══════════════════════════════════════
 if "mode" not in st.session_state:
 
+    try:
+        bg_b64 = load_image_base64("IMG2.jpg")
+        has_bg = True
+    except Exception:
+        has_bg = False
+
+    try:
+        logo_b64 = load_image_base64("IMG3.jpg")
+        has_logo = True
+    except Exception:
+        has_logo = False
+
+    if has_bg:
+        st.markdown(f"""
+<style>
+.stApp::before {{
+    content: '';
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 700px;
+    height: 700px;
+    background-image: url('data:image/jpeg;base64,{bg_b64}');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    opacity: 0.07;
+    z-index: 0;
+    pointer-events: none;
+}}
+[data-testid="column"] {{
+    display: flex;
+    flex-direction: column;
+}}
+.stButton > button {{
+    width: 100%;
+}}
+</style>
+""", unsafe_allow_html=True)
+
+    if has_logo:
+        st.markdown(
+            f"<div style='text-align:center;padding:48px 0 8px 0;'>"
+            f"<img src='data:image/jpeg;base64,{logo_b64}' "
+            f"style='height:52px;filter:invert(1);opacity:0.92;'/>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<h1 style='text-align:center;color:#c9a84c;"
+            "letter-spacing:0.15em;'>KAIROS</h1>",
+            unsafe_allow_html=True,
+        )
+
     st.markdown(
-        "<div class='kairos-landing-header'>KAIROS</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<div class='kairos-landing-sub'>KNOW WHERE YOU STAND</div>",
+        "<p style='text-align:center;color:#666;font-size:0.8rem;"
+        "letter-spacing:0.12em;margin-top:4px;margin-bottom:40px;'>"
+        "KNOW WHERE YOU STAND</p>",
         unsafe_allow_html=True,
     )
 
-    col1, col2 = st.columns(2)
+    card_style = (
+        "background:#1a1a1a;"
+        "border:1px solid #2a2a2a;"
+        "border-radius:12px;"
+        "padding:40px 32px 32px 32px;"
+        "text-align:center;"
+        "min-height:280px;"
+        "display:flex;"
+        "flex-direction:column;"
+        "justify-content:space-between;"
+    )
+
+    col1, col2 = st.columns(2, gap="large")
 
     with col1:
-        st.markdown("""
-        <div class='kairos-card'>
-          <span class='kairos-card-icon'>◈</span>
-          <div class='kairos-card-title'>For Professionals</div>
-          <div class='kairos-card-body'>Where does your work stand in the age of AI?</div>
-          <div class='kairos-card-sub'>10 minutes · Local analysis · No account</div>
+        st.markdown(f"""
+        <div style='{card_style}'>
+          <div>
+            <div style='font-size:2rem;color:#c9a84c;margin-bottom:16px;'>◈</div>
+            <div style='font-size:1.15rem;font-weight:700;color:#f0ede8;
+              margin-bottom:12px;'>For Professionals</div>
+            <div style='font-size:0.9rem;color:#aaa;margin-bottom:8px;'>
+              Where does your work stand in the age of AI?</div>
+            <div style='font-size:0.75rem;color:#555;'>
+              10 minutes · Local analysis · No account</div>
+          </div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Enter →", key="btn_pro", type="primary", use_container_width=True):
+        if st.button("Enter →", key="pro_enter", type="primary", use_container_width=True):
             st.session_state["mode"] = "professional"
             st.rerun()
 
     with col2:
-        st.markdown("""
-        <div class='kairos-card'>
-          <span class='kairos-card-icon'>◎</span>
-          <div class='kairos-card-title'>Kairos Student</div>
-          <div class='kairos-card-body'>Are you spending your energy on the things that matter to you?</div>
-          <div class='kairos-card-sub'>10 minutes · Honest feedback · Just for you</div>
+        st.markdown(f"""
+        <div style='{card_style}'>
+          <div>
+            <div style='font-size:2rem;color:#c9a84c;margin-bottom:16px;'>◎</div>
+            <div style='font-size:1.15rem;font-weight:700;color:#f0ede8;
+              margin-bottom:12px;'>Kairos Student</div>
+            <div style='font-size:0.9rem;color:#aaa;margin-bottom:8px;'>
+              Are you spending your energy on the things that matter to you?</div>
+            <div style='font-size:0.75rem;color:#555;'>
+              10 minutes · Honest feedback · Just for you</div>
+          </div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Enter →", key="btn_student", type="primary", use_container_width=True):
+        if st.button("Enter →", key="student_enter", type="primary", use_container_width=True):
             st.session_state["mode"] = "student"
             st.rerun()
 
     st.markdown(
-        "<div class='kairos-landing-footer'>No login. No account. Your words stay yours.</div>",
+        "<p style='text-align:center;color:#444;font-size:0.75rem;"
+        "margin-top:48px;'>No login. No account. Your words stay yours.</p>",
         unsafe_allow_html=True,
     )
 
