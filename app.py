@@ -51,8 +51,17 @@ st.markdown("""
   }
 
   /* Progress bars gold (default; overridden per-persona in student mode) */
-  .stProgress > div > div {
+  .stProgress > div > div > div {
     background-color: #c9a84c;
+  }
+  .stProgress > div > div {
+    background-color: #2a2a2a;
+  }
+  [data-testid="stProgressBar"] > div > div > div {
+    background-color: #c9a84c;
+  }
+  [data-testid="stProgressBar"] > div > div {
+    background-color: #2a2a2a;
   }
 
   /* Muted captions */
@@ -554,6 +563,21 @@ elif st.session_state["mode"] == "professional":
             risk_pill(p["risk"])
             st.write("")
             st.write(p["desc"])
+            if result.get("persona_rationale"):
+                st.markdown(f"*{result['persona_rationale']}*")
+
+            with st.expander("ℹ️ What does this mean? See all eight personas"):
+                for persona in fw.PERSONAS:
+                    risk = persona["risk"]
+                    color = RISK_COLORS.get(risk, "#7f8c8d")
+                    st.markdown(
+                        f"**{persona['name']}** · "
+                        f"<span style='color:{color};font-size:0.8rem;'>"
+                        f"{risk} displacement risk</span>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(persona["desc"])
+                    st.divider()
         why_text = fw.PERSONA_WHY.get(result["dominant_persona"], "")
         if why_text:
             st.markdown(f"*{why_text}*")
@@ -743,17 +767,26 @@ elif st.session_state["mode"] == "student":
         persona_color = p["color"] if p else "#c9a84c"
 
         st.markdown(f"""
-        <style>
-        .persona-color {{ color: {persona_color}; }}
-        .persona-border {{
-            border-left: 4px solid {persona_color};
-            padding-left: 16px;
-        }}
-        .stProgress > div > div {{
-            background-color: {persona_color} !important;
-        }}
-        </style>
-        """, unsafe_allow_html=True)
+<style>
+[data-testid="stProgressBar"] > div > div > div {{
+    background-color: {persona_color} !important;
+}}
+[data-testid="stProgressBar"] > div > div {{
+    background-color: #2a2a2a !important;
+}}
+.stProgress > div > div > div {{
+    background-color: {persona_color} !important;
+}}
+.stProgress > div > div {{
+    background-color: #2a2a2a !important;
+}}
+.persona-color {{ color: {persona_color}; }}
+.persona-border {{
+    border-left: 4px solid {persona_color};
+    padding-left: 16px;
+}}
+</style>
+""", unsafe_allow_html=True)
 
         # BLOCK 1 — WHAT IS WORKING
         st.markdown("#### What today said about you")
@@ -769,6 +802,18 @@ elif st.session_state["mode"] == "student":
         )
         if p:
             st.write(p["desc"])
+
+            with st.expander("ℹ️ What does this mean? See all four modes"):
+                for sp in sf.STUDENT_PERSONAS:
+                    color = sp["color"]
+                    st.markdown(f"**{sp['name']}** · *{sp['mode']}*")
+                    st.markdown(sp["desc"])
+                    st.markdown(
+                        f"<span style='color:{color};font-size:0.8rem;'>"
+                        f"Growth edge: {sp['growth_edge']}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    st.divider()
 
         # BLOCK 3 — MODE BLEND
         st.markdown("#### Your energy map today")
