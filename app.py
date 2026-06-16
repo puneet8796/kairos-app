@@ -391,6 +391,7 @@ st.markdown("""
     background-color: #1a1a1a !important;
     border: 1px solid #c9a84c !important;
     border-radius: 8px !important;
+    min-height: 64px !important;
   }
   [data-testid="stAudioInput"] * {
     color: #f0ede8 !important;
@@ -630,7 +631,8 @@ if "result" in st.session_state:
     st.markdown("")
     if st.button("← Reflect on another day"):
         for k in ["result", "transcript", "read_id", "locked",
-                  "feedback_rating", "fb_text", "pdf_bytes", "draft_text", "audio_hash"]:
+                  "feedback_rating", "fb_text", "pdf_bytes", "draft_text",
+                  "audio_hash", "voice_transcribed"]:
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -799,9 +801,14 @@ else:
             )
         else:
             _voice_copy = "Audio is transcribed on this machine and never leaves it."
-        st.caption(f"Voice usually goes deeper. {_voice_copy}")
+        st.markdown(
+            "<p style='font-size:1.15rem;font-weight:700;color:#c9a84c;"
+            "margin-bottom:4px;'>Record your day</p>"
+            f"<p style='font-size:0.8rem;color:#888;margin-top:0;'>{_voice_copy}</p>",
+            unsafe_allow_html=True,
+        )
         try:
-            audio_value = st.audio_input("Record your day")
+            audio_value = st.audio_input("Record your day", label_visibility="collapsed")
             if audio_value is not None:
                 audio_bytes = audio_value.getvalue()
                 audio_hash = hashlib.sha256(audio_bytes).hexdigest()
@@ -811,6 +818,7 @@ else:
                             transcribed = _transcribe(audio_bytes)
                             st.session_state["audio_hash"] = audio_hash
                             st.session_state["draft_text"] = transcribed
+                            st.session_state["voice_transcribed"] = True
                             st.rerun()
                         except RuntimeError as _err:
                             st.error(f"Could not transcribe: {_err}. Type your day below instead.")
@@ -837,6 +845,11 @@ else:
                 st.rerun()
 
     # ── Text area ──
+    if st.session_state.get("voice_transcribed"):
+        st.caption(
+            "Transcribed. Read it back, fix anything, "
+            "cut anything you did not mean to say. Then read your day."
+        )
     transcript = st.text_area(
         label="Your day",
         height=260,
@@ -889,6 +902,7 @@ else:
         )
         st.session_state["read_id"] = read_id
         st.session_state.pop("draft_text", None)
+        st.session_state.pop("voice_transcribed", None)
         st.rerun()
 
     _is_cloud = bool(os.environ.get("DATABASE_URL"))
