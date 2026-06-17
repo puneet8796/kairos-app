@@ -833,11 +833,21 @@ else:
                     with st.spinner("Transcribing..."):
                         try:
                             transcribed = _transcribe(audio_bytes)
-                            # Write to both the backup key AND the text-area's own
-                            # session-state key. Streamlit ignores value= on reruns
-                            # once a widget key exists; we must write directly to it.
-                            st.session_state["draft_text"] = transcribed
-                            st.session_state["transcript_input"] = transcribed
+                            # Append to the current text (respecting user edits), don't replace.
+                            # Read from the text-area's own session-state key so we pick up
+                            # any manual edits the user made between recordings.
+                            current_text = st.session_state.get("transcript_input", "")
+                            if current_text.strip():
+                                # Non-empty: append with space separator
+                                new_text = current_text + " " + transcribed
+                            else:
+                                # Empty or whitespace only: just set the transcript
+                                new_text = transcribed
+                            # Write to both keys. Streamlit ignores value= on reruns
+                            # once a widget key exists; we write directly to transcript_input
+                            # and keep draft_text in sync for consistency.
+                            st.session_state["transcript_input"] = new_text
+                            st.session_state["draft_text"] = new_text
                             st.session_state["audio_hash"] = audio_hash
                             st.session_state["voice_transcribed"] = True
                             st.rerun()
