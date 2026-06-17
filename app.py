@@ -7,7 +7,10 @@ import base64
 import datetime as dt
 import hashlib
 import io
+import logging
 import os
+
+logger = logging.getLogger("kairos.app")
 
 import streamlit as st
 
@@ -61,16 +64,30 @@ def _transcribe(audio_bytes: bytes) -> str:
     """
     backend = _voice_backend()
     if backend == "groq":
+        logger.info(
+            "groq transcription: audio type=%s len=%d model=whisper-large-v3-turbo",
+            type(audio_bytes).__name__, len(audio_bytes),
+        )
         from groq import Groq
         client = Groq(api_key=os.environ["GROQ_API_KEY"])
         try:
+            # 2-tuple (filename, raw_bytes) — the form the SDK and Whisper expect.
+            # 3-tuple with BytesIO can produce empty transcripts with no exception.
             response = client.audio.transcriptions.create(
+                file=("recording.webm", audio_bytes),
                 model="whisper-large-v3-turbo",
-                file=("audio.webm", io.BytesIO(audio_bytes), "audio/webm"),
             )
         except Exception as exc:
+            logger.exception("Groq API call failed")
             raise RuntimeError(f"Groq transcription failed: {exc}") from exc
-        return response.text
+        logger.info("groq raw response: %r", response)
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError(
+                "Groq returned an empty transcript. "
+                "The audio may be too short, silent, or in an unsupported format."
+            )
+        return text
 
     if backend == "local":
         from faster_whisper import WhisperModel
@@ -816,12 +833,21 @@ else:
                     with st.spinner("Transcribing..."):
                         try:
                             transcribed = _transcribe(audio_bytes)
-                            st.session_state["audio_hash"] = audio_hash
+                            # Write to both the backup key AND the text-area's own
+                            # session-state key. Streamlit ignores value= on reruns
+                            # once a widget key exists; we must write directly to it.
                             st.session_state["draft_text"] = transcribed
+                            st.session_state["transcript_input"] = transcribed
+                            st.session_state["audio_hash"] = audio_hash
                             st.session_state["voice_transcribed"] = True
                             st.rerun()
                         except RuntimeError as _err:
-                            st.error(f"Could not transcribe: {_err}. Type your day below instead.")
+                            logger.exception("Transcription error surfaced to user")
+                            st.error(
+                                f"Could not transcribe that. {_err} "
+                                "Try again, or type your day below."
+                            )
+                            # Do NOT set voice_transcribed — failure is not success.
                         finally:
                             # Let audio_bytes go out of scope immediately.
                             del audio_bytes
