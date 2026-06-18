@@ -1,8 +1,15 @@
 """
 framework.py
 The Knowledge Quadrant Framework, encoded.
+
+This is the single source of truth for the analysis. Edit the descriptions here
+to match your published Part 1 / Part 2 articles exactly. The analyzer and the UI
+read everything from this file, so nothing about the framework is hard-coded elsewhere.
 """
 
+# ---------------------------------------------------------------------------
+# Two axes
+# ---------------------------------------------------------------------------
 AXES = {
     "knowledge": {
         "explicit": "Documented, trainable, searchable. The kind AI can replicate.",
@@ -17,6 +24,9 @@ AXES = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Four quadrants / archetypes
+# ---------------------------------------------------------------------------
 QUADRANTS = {
     "doctor": {
         "label": "The Doctors",
@@ -44,6 +54,11 @@ QUADRANTS = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Eight personas, highest -> lowest displacement risk
+# Order matters: index 0 is highest risk.
+# Edit `desc` to match your article copy verbatim if you want.
+# ---------------------------------------------------------------------------
 PERSONAS = [
     {
         "name": "The Doer",
@@ -98,17 +113,25 @@ PERSONAS = [
 
 PERSONA_NAMES = [p["name"] for p in PERSONAS]
 
+# ---------------------------------------------------------------------------
+# Static Why descriptions — used at render time instead of LLM-generated text.
+# ---------------------------------------------------------------------------
 PERSONA_WHY = {
-    "The Doer":           "Executes reliably on defined tasks. The agenda is always set by someone else.",
-    "The Responder":      "Responds to what lands in front of them. Fast and accurate, but reactive by design.",
-    "The Craftsman":      "Deep technical skill and genuine craft, but mostly in execution mode. Disconnected from the judgment layer.",
-    "The Utility Player": "Reliable across many domains but rarely the deepest expert in any one of them.",
-    "The Architect":      "Designs systems and builds consensus. Works across teams to make things hold together.",
-    "The Strategist":     "Makes consequential calls on incomplete information using judgment earned over years.",
-    "The Visionary":      "Thinks in futures and patterns. Generates ideas that others eventually catch up to.",
-    "The Oracle":         "The institutional memory and interpretive lens that others rely on without always knowing it.",
+    "The Doer":          "Executes reliably on defined tasks. The agenda is always set by someone else.",
+    "The Responder":     "Responds to what lands in front of them. Fast and accurate, but reactive by design.",
+    "The Craftsman":     "Deep technical skill and genuine craft, but mostly in execution mode. Disconnected from the judgment layer.",
+    "The Utility Player":"Reliable across many domains but rarely the deepest expert in any one of them.",
+    "The Architect":     "Designs systems and builds consensus. Works across teams to make things hold together.",
+    "The Strategist":    "Makes consequential calls on incomplete information using judgment earned over years.",
+    "The Visionary":     "Thinks in futures and patterns. Generates ideas that others eventually catch up to.",
+    "The Oracle":        "The institutional memory and interpretive lens that others rely on without always knowing it.",
 }
 
+# ---------------------------------------------------------------------------
+# Displacement-language signals
+# Verbs/phrasings that flag documentable, delegable, agent-ready work.
+# Used as a hint to the model and as a cheap deterministic backstop.
+# ---------------------------------------------------------------------------
 DISPLACEMENT_VERBS = [
     "formatted", "pulled", "compiled", "collated", "responded to", "replied",
     "updated the", "copied", "pasted", "filled in", "logged", "entered",
@@ -126,7 +149,7 @@ def persona_by_name(name: str):
 
 
 def build_prompt(transcript: str) -> str:
-    """Build the analysis instruction sent to the model."""
+    """Build the analysis instruction sent to the local model."""
     quad_lines = "\n".join(
         f"- {v['label']} ({k}): {v['axes']}. {v['desc']}"
         for k, v in QUADRANTS.items()
@@ -158,23 +181,23 @@ exact shape and nothing else:
   "quadrant_blend": {{"doctor": 0-100, "builder": 0-100, "general": 0-100, "creator": 0-100}},
   "dominant_persona": "<one of the eight persona names, exactly as written>",
   "displacement_signals": [
-    {{"phrase": "<short quote copied exactly from the person's words>", "why": "<why an agent could do this>"}}
+    {{"phrase": "<short quote from the person's words>", "why": "<why tasks a tool could handle covers this>"}}
   ],
   "energizing": ["<explicit emotional signal only — satisfaction, excitement, meaning. If none exists: 'No clear energizer mentioned.'>"],
   "draining": ["<explicit emotional signal only — frustration, tedium, obligation. If none exists: 'No clear drain mentioned.'>"],
-  "insight": "<2 to 3 sentences in second person, addressing the user directly — use 'you' and 'your', never 'they' or 'their'>",
-  "next_move": "<one short, concrete action tied to the user's lowest-present quadrant — specific, actionable, starts with a verb>",
+  "insight": "<2 to 3 sentences in second person. Open with an observation about what your own words reveal — not a directive. Describe what is present in what you said. If a follow-on sentence points toward action, tie it to a specific phrase you actually used, not generic advice. Use 'you' and 'your', never 'they' or 'their'>",
   "honest_question": "<one direct question for the user — use 'you', never 'they'>"
 }}
 
 Rules:
 - quadrant_blend percentages must sum to 100.
 - dominant_persona must be one of the eight names exactly.
-- Quote the person's own words verbatim in displacement_signals; do not invent or paraphrase. Only include a signal if the exact phrase appears in their text.
+- Quote the person's own words in displacement_signals; do not invent.
 - If the day is light on displacement signals, say so honestly with an empty or short list.
-- next_move must name the quadrant the user is thinnest in and give one concrete thing they could do — not advice about being more strategic in general.
 - Write all insight copy, energized/drained observations, and the closing question directly to the user in second person. Use "you" and "your" throughout. Never use "they", "their", or "the person".
-- Identify what energized and what drained the user today based only on emotional or evaluative language in the narrative. Do NOT infer energy from neutral activity descriptions. If no explicit emotional signal exists, return "No clear energizer mentioned." or "No clear drain mentioned."
+- Do not moralize. Do not use phrases like 'it is important to', 'you should consider', 'make sure to', or 'it is worth reflecting on'. Speak plainly. Describe, don't prescribe.
+- Use plain English throughout. Avoid abstract vocabulary. Specifically: use 'control' not 'agency', use 'tasks a tool could handle' not 'displacement signals', use 'judgment built over years' not 'tacit knowledge', use 'what you made or decided' not 'original output'. Write as if explaining to a smart person whose first language is not English.
+- Identify what energized and what drained the user today based only on emotional or evaluative language in the narrative — words like "felt good", "satisfying", "frustrating", "tedious", "finally", "unfortunately", "dragged", "excited", "drained". Do NOT infer energy from neutral activity descriptions like times, quantities, or task completions. If the narrative contains no explicit emotional signal for energized, return the string: "No clear energizer mentioned." If the narrative contains no explicit emotional signal for drained, return the string: "No clear drain mentioned." The energizing field must only reference language or situations actually present in the user's narrative. Do not generate or infer phrases that do not appear in the input. If you cannot find explicit energizer language, return: "No clear energizer mentioned." The drained field must only reference language or situations actually present in the user's narrative. Do not generate or infer phrases that do not appear in the input. If you cannot find explicit drain language, return: "No clear drain mentioned."
 - No preamble, no markdown, no text outside the JSON.
 
 THE PERSON'S DAY:
