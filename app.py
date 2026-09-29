@@ -11,6 +11,7 @@ Run:  streamlit run app.py --server.port 8502 --server.address 0.0.0.0
 """
 
 import datetime as dt
+import os
 import random
 import string
 
@@ -241,8 +242,8 @@ st.caption(
     "Know where you stand."
 )
 st.caption(
-    "No login. One session. Your words never leave "
-    "this machine. This is a mirror, not a quiz."
+    "No login. One session. Kairos does not save what you write. "
+    "This is a mirror, not a quiz."
 )
 
 # Inspiration chips
@@ -307,7 +308,10 @@ col_a, col_b = st.columns([1, 3])
 with col_a:
     go = st.button("Read my day", type="primary", use_container_width=True)
 with col_b:
-    st.caption(f"Local model: `{analyzer.OLLAMA_MODEL}` via Ollama")
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        st.caption("Powered by Claude (Anthropic). Kairos does not save what you write.")
+    else:
+        st.caption(f"Local model: `{analyzer.OLLAMA_MODEL}` via Ollama")
 
 
 def _stage1_validate(text: str):
@@ -446,8 +450,8 @@ if "result" in st.session_state:
     with st.expander("What this tool looked at"):
         st.write(
             "It mapped your time across the four quadrants, flagged language that signals "
-            "documentable work, and noted what energized versus drained you. It runs entirely "
-            "on this machine. Nothing was sent anywhere."
+            "documentable work, and noted what energized versus drained you. Your text was sent "
+            "to Claude (Anthropic's AI) to produce this read; Kairos itself does not save it."
         )
 
     # ----------------------------------------------------------------------- Feedback
