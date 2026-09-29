@@ -374,7 +374,7 @@ if "result" in st.session_state:
         st.write("")
         st.write(p["desc"])
     why_text = fw.PERSONA_WHY.get(result["dominant_persona"], "")
-    if why_text:
+    if why_text and (not p or why_text.strip() != p["desc"].strip()):
         st.markdown(f"*{why_text}*")
 
     # Quadrant blend
@@ -444,8 +444,6 @@ if "result" in st.session_state:
                     summary,
                 )
                 (st.success if ok else st.error)(msg)
-    else:
-        st.caption("Email delivery is off. Set the SMTP_* env vars to turn it on.")
 
     with st.expander("What this tool looked at"):
         st.write(
